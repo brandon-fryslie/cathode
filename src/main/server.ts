@@ -1,0 +1,282 @@
+// [LAW:single-enforcer] All WebSocket message validation happens here, at the server boundary.
+
+import http from 'node:http'
+import { readFile } from 'node:fs/promises'
+import { resolve, extname } from 'node:path'
+import { WebSocketServer, WebSocket } from 'ws'
+import type { ClientMessage, ServerMessage } from '../shared/protocol.js'
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+}
+
+export interface WindowRoute {
+  windowId: number
+  contentPath?: string // file path to serve
+  contentUrl?: string  // URL to redirect/proxy to
+  title: string
+}
+
+export type ClientMessageHandler = (windowId: number, message: ClientMessage, ws: WebSocket) => void
+
+export class BridgeServer {
+  private _httpServer: http.Server
+  private _wss: WebSocketServer
+  private _port: number
+  private _connections = new Map<number, Set<WebSocket>>() // windowId → connected clients
+  private _routes = new Map<number, WindowRoute>()
+  private _staticDirs: string[] = []
+  private _onMessage: ClientMessageHandler = () => {}
+  private _onClientReady: (windowId: number, ws: WebSocket) => void = () => {}
+  private _onClientDisconnect: (windowId: number) => void = () => {}
+  private _rendererBundle: string | null = null
+
+  constructor(port = 3000) {
+    this._port = port
+    this._httpServer = http.createServer((req, res) => this._handleHttp(req, res))
+    this._wss = new WebSocketServer({ noServer: true })
+    this._httpServer.on('upgrade', (req, socket, head) => {
+      const url = new URL(req.url ?? '/', `http://localhost:${this._port}`)
+      if (url.pathname === '/__bridge/ws') {
+        this._wss.handleUpgrade(req, socket, head, (ws) => {
+          const windowId = parseInt(url.searchParams.get('windowId') ?? '1', 10)
+          this._attachClient(windowId, ws)
+        })
+      } else {
+        socket.destroy()
+      }
+    })
+  }
+
+  get httpServer(): http.Server { return this._httpServer }
+  get port(): number { return this._port }
+
+  setMessageHandler(handler: ClientMessageHandler): void {
+    this._onMessage = handler
+  }
+
+  setClientReadyHandler(handler: (windowId: number, ws: WebSocket) => void): void {
+    this._onClientReady = handler
+  }
+
+  setClientDisconnectHandler(handler: (windowId: number) => void): void {
+    this._onClientDisconnect = handler
+  }
+
+  setRendererBundle(code: string): void {
+    this._rendererBundle = code
+  }
+
+  addStaticDir(dir: string): void {
+    this._staticDirs.push(dir)
+  }
+
+  setRoute(route: WindowRoute): void {
+    this._routes.set(route.windowId, route)
+  }
+
+  removeRoute(windowId: number): void {
+    this._routes.delete(windowId)
+  }
+
+  /** Send a message to all clients connected to a specific window */
+  sendToWindow(windowId: number, message: ServerMessage): void {
+    const clients = this._connections.get(windowId)
+    if (!clients) return
+    const data = JSON.stringify(message)
+    for (const ws of clients) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data)
+      }
+    }
+  }
+
+  /** Send a message to all connected clients */
+  broadcast(message: ServerMessage): void {
+    const data = JSON.stringify(message)
+    for (const clients of this._connections.values()) {
+      for (const ws of clients) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(data)
+        }
+      }
+    }
+  }
+
+  hasConnectedClients(windowId: number): boolean {
+    const clients = this._connections.get(windowId)
+    if (!clients) return false
+    for (const ws of clients) {
+      if (ws.readyState === WebSocket.OPEN) return true
+    }
+    return false
+  }
+
+  async listen(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this._httpServer.on('error', reject)
+      this._httpServer.listen(this._port, () => {
+        this._httpServer.removeListener('error', reject)
+        resolve()
+      })
+    })
+  }
+
+  async close(): Promise<void> {
+    // Close all WebSocket connections
+    for (const clients of this._connections.values()) {
+      for (const ws of clients) {
+        ws.close(1001, 'Server shutting down')
+      }
+    }
+    this._connections.clear()
+
+    return new Promise((resolve) => {
+      this._wss.close(() => {
+        this._httpServer.close(() => resolve())
+      })
+    })
+  }
+
+  private _attachClient(windowId: number, ws: WebSocket): void {
+    const clients = this._connections.get(windowId) ?? new Set()
+    clients.add(ws)
+    this._connections.set(windowId, clients)
+
+    ws.on('message', (raw) => {
+      const msg = this._parseMessage(raw.toString())
+      if (msg) this._onMessage(windowId, msg, ws)
+    })
+
+    ws.on('close', () => {
+      clients.delete(ws)
+      if (clients.size === 0) {
+        this._connections.delete(windowId)
+        this._onClientDisconnect(windowId)
+      }
+    })
+  }
+
+  // [LAW:single-enforcer] Message validation — the one place we verify incoming messages
+  private _parseMessage(raw: string): ClientMessage | null {
+    try {
+      const msg = JSON.parse(raw)
+      if (!msg || typeof msg.type !== 'string') return null
+      return msg as ClientMessage
+    } catch {
+      return null
+    }
+  }
+
+  private async _handleHttp(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? '/', `http://localhost:${this._port}`)
+    const pathname = url.pathname
+
+    // Serve renderer bridge bundle
+    if (pathname === '/__bridge/client.js') {
+      const bundle = this._rendererBundle ?? '// electron-bridge renderer not built yet'
+      res.writeHead(200, { 'Content-Type': 'application/javascript' })
+      res.end(bundle)
+      return
+    }
+
+    // Window routes
+    if (pathname === '/') {
+      this._serveWindowShell(res, this._findPrimaryRoute())
+      return
+    }
+
+    const windowMatch = pathname.match(/^\/window\/(\d+)$/)
+    if (windowMatch) {
+      const windowId = parseInt(windowMatch[1], 10)
+      const route = this._routes.get(windowId)
+      this._serveWindowShell(res, route ?? null)
+      return
+    }
+
+    // Static file serving
+    const served = await this._serveStatic(pathname, res)
+    if (served) return
+
+    res.writeHead(404, { 'Content-Type': 'text/plain' })
+    res.end('Not found')
+  }
+
+  private _findPrimaryRoute(): WindowRoute | null {
+    // The lowest windowId is the primary window
+    let primary: WindowRoute | null = null
+    for (const route of this._routes.values()) {
+      if (!primary || route.windowId < primary.windowId) {
+        primary = route
+      }
+    }
+    return primary
+  }
+
+  private _serveWindowShell(res: http.ServerResponse, route: WindowRoute | null): void {
+    const windowId = route?.windowId ?? 1
+    const title = route?.title ?? 'electron-bridge'
+    const contentSrc = route?.contentUrl ?? route?.contentPath ?? ''
+
+    // If loading a file, serve it as an iframe src via the static route
+    const iframeSrc = route?.contentPath
+      ? `/${route.contentPath.replace(/\\/g, '/')}`
+      : contentSrc
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    iframe { width: 100%; height: 100%; border: none; }
+  </style>
+</head>
+<body>
+  ${iframeSrc ? `<iframe id="bridge-content" src="${escapeHtml(iframeSrc)}"></iframe>` : ''}
+  <script>window.__BRIDGE_WINDOW_ID__ = ${windowId};</script>
+  <script type="module" src="/__bridge/client.js"></script>
+</body>
+</html>`
+    res.writeHead(200, { 'Content-Type': 'text/html' })
+    res.end(html)
+  }
+
+  private async _serveStatic(pathname: string, res: http.ServerResponse): Promise<boolean> {
+    // Prevent directory traversal
+    const clean = pathname.replace(/\.\./g, '')
+
+    for (const dir of this._staticDirs) {
+      const filePath = resolve(dir, clean.slice(1)) // remove leading /
+      try {
+        const content = await readFile(filePath)
+        const ext = extname(filePath)
+        const mime = MIME_TYPES[ext] ?? 'application/octet-stream'
+        res.writeHead(200, { 'Content-Type': mime })
+        res.end(content)
+        return true
+      } catch {
+        // File not in this dir, try next
+      }
+    }
+    return false
+  }
+}
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
