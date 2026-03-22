@@ -33,6 +33,8 @@ export interface Display {
 export interface BrowserWindowConstructorOptions {
   width?: number
   height?: number
+  minWidth?: number
+  minHeight?: number
   x?: number
   y?: number
   title?: string
@@ -47,6 +49,16 @@ export interface BrowserWindowConstructorOptions {
   fullscreen?: boolean
   fullscreenable?: boolean
   alwaysOnTop?: boolean
+  // Accepted but no-op in browser mode
+  frame?: boolean
+  transparent?: boolean
+  hasShadow?: boolean
+  autoHideMenuBar?: boolean
+  movable?: boolean
+  focusable?: boolean
+  icon?: string
+  skipTaskbar?: boolean
+  kiosk?: boolean
   webPreferences?: WebPreferences
 }
 

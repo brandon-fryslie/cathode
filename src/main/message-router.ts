@@ -5,6 +5,7 @@ import type { WebSocket } from 'ws'
 import type { ClientMessage, ServerMessage } from '../shared/protocol.js'
 import type { BridgeServer } from './server.js'
 import { ipcMain } from './ipc-main.js'
+import { _handleDialogResponse } from './dialog.js'
 
 type ClientMessageHandlers = {
   [K in ClientMessage['type']]: (msg: Extract<ClientMessage, { type: K }>, windowId: number, ws: WebSocket) => void
@@ -32,8 +33,8 @@ export function createMessageRouter(server: BridgeServer): void {
       }
     },
 
-    'dialog:response': (_msg, _windowId) => {
-      // Handled by dialog module when loaded — it registers its own handler
+    'dialog:response': (msg, _windowId) => {
+      _handleDialogResponse(msg.id, msg.result)
     },
 
     'window:event': (_msg, _windowId) => {

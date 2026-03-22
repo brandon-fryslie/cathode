@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import type { BrowserWindowConstructorOptions, Rectangle, Size } from '../shared/types.js'
 import { ElectronEvent } from '../shared/events.js'
@@ -19,8 +20,12 @@ export class BrowserWindow extends EventEmitter {
   private _closable: boolean
   private _resizable: boolean
   private _destroyed = false
+  private _minSize: [number, number]
   private _options: BrowserWindowConstructorOptions
+  private _preloadSource: string | null = null
   private _server: BridgeServer | null = null
+  private _pendingRoute: import('./server.js').WindowRoute | null = null
+  private _pendingStaticDirs: string[] = []
 
   constructor(options: BrowserWindowConstructorOptions = {}) {
     super()
@@ -37,7 +42,18 @@ export class BrowserWindow extends EventEmitter {
     this._fullscreen = options.fullscreen ?? false
     this._closable = options.closable !== false
     this._resizable = options.resizable !== false
+    this._minSize = [options.minWidth ?? 0, options.minHeight ?? 0]
     this.webContents = new WebContents(this.id)
+
+    // Read preload script source if specified
+    if (options.webPreferences?.preload) {
+      try {
+        const preloadPath = resolve(options.webPreferences.preload)
+        this._preloadSource = readFileSync(preloadPath, 'utf-8')
+      } catch {
+        console.warn(`[electron-bridge] Could not read preload script: ${options.webPreferences.preload}`)
+      }
+    }
 
     // Defer registration so app.ts can inject the server reference
     queueMicrotask(() => this._register())
@@ -48,11 +64,20 @@ export class BrowserWindow extends EventEmitter {
     this._server = server
     this.webContents._setServer(server)
 
-    // Register the HTTP route for this window
-    server.setRoute({
+    // Apply any pending static dirs from loadFile calls before server was ready
+    for (const dir of this._pendingStaticDirs) {
+      server.addStaticDir(dir)
+    }
+    this._pendingStaticDirs = []
+
+    // Apply pending route or register a default one
+    const route = this._pendingRoute ?? {
       windowId: this.id,
       title: this._title,
-    })
+      preloadSource: this._preloadSource ?? undefined,
+    }
+    server.setRoute(route)
+    this._pendingRoute = null
   }
 
   private _register(): void {
@@ -71,23 +96,39 @@ export class BrowserWindow extends EventEmitter {
   // --- Content Loading ---
 
   loadURL(url: string): Promise<void> {
+    // Handle file:// URLs by converting to loadFile behavior
+    if (url.startsWith('file://')) {
+      const filePath = url.slice('file://'.length)
+      return this.loadFile(filePath)
+    }
+
     this.webContents._setURL(url)
-    const route = { windowId: this.id, title: this._title, contentUrl: url }
-    this._server?.setRoute(route)
+    const route = { windowId: this.id, title: this._title, contentUrl: url, preloadSource: this._preloadSource ?? undefined }
+    if (this._server) {
+      this._server.setRoute(route)
+    } else {
+      this._pendingRoute = route
+    }
     this._sendCommand('loadURL', url)
-    // Emit finish after a tick (client will actually navigate)
     queueMicrotask(() => this.webContents._finishLoad())
     return Promise.resolve()
   }
 
   loadFile(filePath: string): Promise<void> {
     const absolute = resolve(filePath)
-    // Add the file's directory as a static serving dir
-    this._server?.addStaticDir(dirname(absolute))
-
+    const staticDir = dirname(absolute)
     const fileName = filePath.replace(/\\/g, '/')
-    const route = { windowId: this.id, title: this._title, contentPath: fileName }
-    this._server?.setRoute(route)
+    const route = { windowId: this.id, title: this._title, contentPath: fileName, preloadSource: this._preloadSource ?? undefined }
+
+    if (this._server) {
+      this._server.addStaticDir(staticDir)
+      this._server.setRoute(route)
+    } else {
+      // Server not yet wired — queue for _setServer
+      this._pendingStaticDirs.push(staticDir)
+      this._pendingRoute = route
+    }
+
     this.webContents._setURL(`file://${absolute}`)
     this._sendCommand('loadFile', fileName)
     queueMicrotask(() => this.webContents._finishLoad())
@@ -232,6 +273,14 @@ export class BrowserWindow extends EventEmitter {
     this._bounds.x = 0
     this._bounds.y = 0
   }
+
+  setMinimumSize(width: number, height: number): void { this._minSize = [width, height] }
+  getMinimumSize(): [number, number] { return [...this._minSize] }
+  setMaximumSize(_width: number, _height: number): void { /* no-op in browser */ }
+  getMaximumSize(): [number, number] { return [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER] }
+
+  setTouchBar(_touchBar: unknown): void { /* no-op — no TouchBar in browser */ }
+  setMenu(_menu: unknown): void { /* no-op — per-window menus not supported in browser */ }
 
   // --- Static Methods ---
 

@@ -1,9 +1,13 @@
 import { EventEmitter } from 'node:events'
+import { readFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { resolve, join } from 'node:path'
+import { resolve, join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { ElectronEvent } from '../shared/events.js'
 import { BridgeServer } from './server.js'
 import { createMessageRouter } from './message-router.js'
+import { _initDialog } from './dialog.js'
+import { _initMenu } from './menu.js'
 import { WindowManager } from './window-manager.js'
 import type { BrowserWindow } from './browser-window.js'
 
@@ -45,10 +49,13 @@ class App extends EventEmitter {
     this._server = new BridgeServer(port)
 
     createMessageRouter(this._server)
+    _initDialog(this._server)
+    _initMenu(this._server)
 
     // Wire up window lifecycle events
     WindowManager.setOnWindowCreated((win: BrowserWindow) => {
       win._setServer(this._server)
+      this.emit('web-contents-created', {}, win.webContents)
       this.emit('browser-window-created', {}, win)
     })
 
@@ -76,8 +83,33 @@ class App extends EventEmitter {
   /** @internal Access the server (used by other modules) */
   get _bridgeServer(): BridgeServer { return this._server }
 
+  private _loadRendererBundle(): void {
+    // Find the renderer IIFE bundle relative to this module's directory.
+    // In built mode (dist/index.cjs): __dirname = dist/
+    // In source mode (src/main/app.ts): __dirname = src/main/
+    const thisDir = typeof __dirname !== 'undefined'
+      ? __dirname
+      : dirname(fileURLToPath(import.meta.url))
+
+    const candidates = [
+      resolve(thisDir, 'renderer', 'index.global.js'),          // dist/renderer/
+      resolve(thisDir, '..', 'renderer', 'index.global.js'),    // dist/main/../renderer/
+      resolve(thisDir, '..', 'dist', 'renderer', 'index.global.js'), // src/main/../../dist/renderer/
+    ]
+
+    for (const path of candidates) {
+      try {
+        const bundle = readFileSync(path, 'utf-8')
+        this._server.setRendererBundle(bundle)
+        return
+      } catch { /* try next */ }
+    }
+    console.warn('[electron-bridge] Could not find renderer bundle — client-side bridge will not work')
+  }
+
   private async _start(): Promise<void> {
     try {
+      this._loadRendererBundle()
       await this._server.listen()
       this._ready = true
       this.emit('will-finish-launching')
@@ -167,6 +199,15 @@ class App extends EventEmitter {
   }
 
   isPackaged: boolean = false
+
+  setAppUserModelId(_id: string): void { /* no-op in browser */ }
+  disableHardwareAcceleration(): void { /* no-op in browser */ }
+  commandLine = {
+    appendSwitch: (_key: string, _value?: string): void => {},
+    appendArgument: (_value: string): void => {},
+    hasSwitch: (_key: string): boolean => false,
+    getSwitchValue: (_key: string): string => '',
+  }
 
   // --- Focus ---
 

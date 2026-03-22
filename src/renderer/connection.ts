@@ -14,6 +14,7 @@ export class BridgeConnection {
   private _reconnectDelay = 250
   private _maxReconnectDelay = 8000
   private _closed = false
+  private _queue: ClientMessage[] = []
   private _readyPromise: Promise<void>
   private _resolveReady!: () => void
 
@@ -36,6 +37,15 @@ export class BridgeConnection {
   send(message: ClientMessage): void {
     if (this._ws && this._ws.readyState === WebSocket.OPEN) {
       this._ws.send(JSON.stringify(message))
+    } else {
+      this._queue.push(message)
+    }
+  }
+
+  private _flushQueue(): void {
+    const queued = this._queue.splice(0)
+    for (const msg of queued) {
+      this.send(msg)
     }
   }
 
@@ -53,6 +63,7 @@ export class BridgeConnection {
     ws.onopen = () => {
       this._reconnectDelay = 250
       this.send({ type: 'client:ready', windowId: this._windowId })
+      this._flushQueue()
       this._resolveReady()
     }
 

@@ -19,6 +19,11 @@ const MIME_TYPES: Record<string, string> = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
+  '.wasm': 'application/wasm',
 }
 
 export interface WindowRoute {
@@ -26,6 +31,7 @@ export interface WindowRoute {
   contentPath?: string // file path to serve
   contentUrl?: string  // URL to redirect/proxy to
   title: string
+  preloadSource?: string // source code of the preload script
 }
 
 export type ClientMessageHandler = (windowId: number, message: ClientMessage, ws: WebSocket) => void
@@ -79,7 +85,9 @@ export class BridgeServer {
   }
 
   addStaticDir(dir: string): void {
-    this._staticDirs.push(dir)
+    if (!this._staticDirs.includes(dir)) {
+      this._staticDirs.push(dir)
+    }
   }
 
   setRoute(route: WindowRoute): void {
@@ -183,7 +191,7 @@ export class BridgeServer {
     const url = new URL(req.url ?? '/', `http://localhost:${this._port}`)
     const pathname = url.pathname
 
-    // Serve renderer bridge bundle
+    // Serve renderer bridge bundle (for debugging/direct load)
     if (pathname === '/__bridge/client.js') {
       const bundle = this._rendererBundle ?? '// electron-bridge renderer not built yet'
       res.writeHead(200, { 'Content-Type': 'application/javascript' })
@@ -191,9 +199,9 @@ export class BridgeServer {
       return
     }
 
-    // Window routes
+    // Window routes — serve HTML with injected bridge scripts (no iframe)
     if (pathname === '/') {
-      this._serveWindowShell(res, this._findPrimaryRoute())
+      await this._serveInjectedHtml(res, this._findPrimaryRoute())
       return
     }
 
@@ -201,7 +209,7 @@ export class BridgeServer {
     if (windowMatch) {
       const windowId = parseInt(windowMatch[1], 10)
       const route = this._routes.get(windowId)
-      this._serveWindowShell(res, route ?? null)
+      await this._serveInjectedHtml(res, route ?? null)
       return
     }
 
@@ -224,36 +232,99 @@ export class BridgeServer {
     return primary
   }
 
-  private _serveWindowShell(res: http.ServerResponse, route: WindowRoute | null): void {
+  /**
+   * Serve the app's actual HTML file with bridge scripts injected directly.
+   * No iframe — the bridge runs in the same context as the app.
+   */
+  private async _serveInjectedHtml(res: http.ServerResponse, route: WindowRoute | null): Promise<void> {
     const windowId = route?.windowId ?? 1
     const title = route?.title ?? 'electron-bridge'
-    const contentSrc = route?.contentUrl ?? route?.contentPath ?? ''
 
-    // If loading a file, serve it as an iframe src via the static route
-    const iframeSrc = route?.contentPath
-      ? `/${route.contentPath.replace(/\\/g, '/')}`
-      : contentSrc
+    // If we have a content path, read and inject into the actual HTML
+    if (route?.contentPath) {
+      const html = await this._readContentFile(route.contentPath)
+      if (html !== null) {
+        const injected = this._injectBridgeScripts(html, windowId, route.preloadSource)
+        res.writeHead(200, { 'Content-Type': 'text/html' })
+        res.end(injected)
+        return
+      }
+    }
 
-    const html = `<!DOCTYPE html>
+    // Fallback: serve a minimal shell (for URL-based windows or when no content path)
+    const html = this._buildMinimalShell(windowId, title, route?.contentUrl, route?.preloadSource)
+    res.writeHead(200, { 'Content-Type': 'text/html' })
+    res.end(html)
+  }
+
+  private async _readContentFile(contentPath: string): Promise<string | null> {
+    // Try each static dir to find the HTML file
+    for (const dir of this._staticDirs) {
+      const filePath = resolve(dir, contentPath.replace(/^\//, ''))
+      try {
+        return await readFile(filePath, 'utf-8')
+      } catch {
+        // Try next dir
+      }
+    }
+    // Try as absolute path
+    try {
+      return await readFile(resolve(contentPath), 'utf-8')
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Inject bridge scripts into an HTML file.
+   * Scripts are blocking (not defer/module) so they run before the app's deferred scripts.
+   * This ensures window.api is available when app scripts execute.
+   */
+  private _injectBridgeScripts(html: string, windowId: number, preloadSource?: string): string {
+    const bridgeBundle = this._rendererBundle ?? ''
+
+    // Build the preload wrapper if a preload script exists
+    const preloadBlock = preloadSource
+      ? `<script>(function(){var require=function(m){if(m==="electron")return window.__bridge_renderer__;throw new Error("Cannot require '"+m+"' in browser mode")};${escapeScript(preloadSource)}})()</script>\n`
+      : ''
+
+    const injection =
+      `<script>window.__BRIDGE_WINDOW_ID__=${windowId};</script>\n` +
+      `<script>${escapeScript(bridgeBundle)}</script>\n` +
+      preloadBlock
+
+    // Inject after <head> tag if present
+    const headMatch = html.match(/<head[^>]*>/i)
+    if (headMatch) {
+      const idx = headMatch.index! + headMatch[0].length
+      return html.slice(0, idx) + '\n' + injection + html.slice(idx)
+    }
+
+    // No <head>? Inject at the very beginning
+    return injection + html
+  }
+
+  /** Minimal shell for URL-based windows or when no HTML file is found */
+  private _buildMinimalShell(windowId: number, title: string, contentUrl?: string, preloadSource?: string): string {
+    const bridgeBundle = this._rendererBundle ?? ''
+    const preloadBlock = preloadSource
+      ? `<script>(function(){var require=function(m){if(m==="electron")return window.__bridge_renderer__;throw new Error("Cannot require '"+m+"' in browser mode")};${escapeScript(preloadSource)}})()</script>`
+      : ''
+
+    return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; }
-    iframe { width: 100%; height: 100%; border: none; }
-  </style>
+  <script>window.__BRIDGE_WINDOW_ID__=${windowId};</script>
+  <script>${escapeScript(bridgeBundle)}</script>
+  ${preloadBlock}
 </head>
 <body>
-  ${iframeSrc ? `<iframe id="bridge-content" src="${escapeHtml(iframeSrc)}"></iframe>` : ''}
-  <script>window.__BRIDGE_WINDOW_ID__ = ${windowId};</script>
-  <script type="module" src="/__bridge/client.js"></script>
+  ${contentUrl ? `<p>Redirect to: <a href="${escapeHtml(contentUrl)}">${escapeHtml(contentUrl)}</a></p>` : ''}
 </body>
 </html>`
-    res.writeHead(200, { 'Content-Type': 'text/html' })
-    res.end(html)
   }
 
   private async _serveStatic(pathname: string, res: http.ServerResponse): Promise<boolean> {
@@ -279,4 +350,9 @@ export class BridgeServer {
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/** Escape script content so </script> inside code doesn't break the HTML */
+function escapeScript(code: string): string {
+  return code.replace(/<\/script/gi, '<\\/script')
 }

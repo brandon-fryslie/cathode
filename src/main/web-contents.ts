@@ -77,4 +77,16 @@ export class WebContents extends EventEmitter {
   closeDevTools(): void { /* no-op */ }
   isDevToolsOpened(): boolean { return false }
   toggleDevTools(): void { this.openDevTools() }
+
+  setWindowOpenHandler(_handler: (details: { url: string }) => { action: string }): void {
+    // In browser mode, window.open is governed by the browser itself
+  }
+
+  /** Session stub — enough to not crash when accessed */
+  session = {
+    webRequest: {
+      onBeforeSendHeaders: () => {},
+      onHeadersReceived: () => {},
+    },
+  }
 }
