@@ -128,6 +128,27 @@ export interface MessageBoxReturnValue {
   checkboxChecked: boolean
 }
 
+/** Serializable representation of fs.Stats (methods converted to boolean fields) */
+export interface SerializedStats {
+  isFile: boolean
+  isDirectory: boolean
+  isSymbolicLink: boolean
+  size: number
+  mtimeMs: number
+  ctimeMs: number
+  birthtimeMs: number
+  atimeMs: number
+  mode: number
+}
+
+/** Serializable representation of fs.Dirent */
+export interface SerializedDirent {
+  name: string
+  isFile: boolean
+  isDirectory: boolean
+  isSymbolicLink: boolean
+}
+
 /** Menu item constructor options (matches Electron's) */
 export interface MenuItemConstructorOptions {
   label?: string

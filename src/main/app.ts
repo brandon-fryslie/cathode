@@ -8,6 +8,7 @@ import { BridgeServer } from './server.js'
 import { createMessageRouter } from './message-router.js'
 import { _initDialog } from './dialog.js'
 import { _initMenu } from './menu.js'
+import { _initFs } from './fs-service.js'
 import { WindowManager } from './window-manager.js'
 import type { BrowserWindow } from './browser-window.js'
 
@@ -51,6 +52,7 @@ class App extends EventEmitter {
     createMessageRouter(this._server)
     _initDialog(this._server)
     _initMenu(this._server)
+    _initFs([process.cwd()])
 
     // Wire up window lifecycle events
     WindowManager.setOnWindowCreated((win: BrowserWindow) => {

@@ -14,6 +14,7 @@ export { nativeTheme } from './native-theme.js'
 export { nativeImage, NativeImage } from './native-image.js'
 export { session } from './session.js'
 export { BridgeServer } from './server.js'
+export { addFsRoot } from './fs-service.js'
 
 // Tier 4 stubs
 export {
