@@ -9,6 +9,9 @@ import type { SerializedStats, SerializedDirent } from '../shared/types.js'
 
 const sandbox = new PathSandbox()
 
+/** @internal Access the sandbox for the REST handler */
+export function _getFsSandbox(): PathSandbox { return sandbox }
+
 export function _initFs(roots: string[]): void {
   for (const root of roots) {
     sandbox.addRoot(root)
@@ -20,7 +23,7 @@ export function addFsRoot(root: string): void {
   sandbox.addRoot(root)
 }
 
-function serializeStats(stats: fsSync.Stats): SerializedStats {
+export function serializeStats(stats: fsSync.Stats): SerializedStats {
   return {
     isFile: stats.isFile(),
     isDirectory: stats.isDirectory(),
@@ -34,7 +37,7 @@ function serializeStats(stats: fsSync.Stats): SerializedStats {
   }
 }
 
-function serializeDirent(dirent: fsSync.Dirent): SerializedDirent {
+export function serializeDirent(dirent: fsSync.Dirent): SerializedDirent {
   return {
     name: dirent.name,
     isFile: dirent.isFile(),

@@ -5,6 +5,8 @@ import { readFile } from 'node:fs/promises'
 import { resolve, extname } from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import type { ClientMessage, ServerMessage } from '../shared/protocol.js'
+import { handleFsRequest } from './fs-rest.js'
+import { _getFsSandbox } from './fs-service.js'
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
@@ -191,6 +193,12 @@ export class BridgeServer {
     const url = new URL(req.url ?? '/', `http://localhost:${this._port}`)
     const pathname = url.pathname
 
+    // Sync fs REST endpoint — used by renderer's sync XHR calls
+    if (pathname === '/__bridge/fs' && req.method === 'POST') {
+      await handleFsRequest(req, res, _getFsSandbox())
+      return
+    }
+
     // Serve renderer bridge bundle (for debugging/direct load)
     if (pathname === '/__bridge/client.js') {
       const bundle = this._rendererBundle ?? '// electron-bridge renderer not built yet'
@@ -285,7 +293,7 @@ export class BridgeServer {
 
     // Build the preload wrapper if a preload script exists
     const preloadBlock = preloadSource
-      ? `<script>(function(){var require=function(m){if(m==="electron")return window.__bridge_renderer__;throw new Error("Cannot require '"+m+"' in browser mode")};${escapeScript(preloadSource)}})()</script>\n`
+      ? `<script>(function(){var require=function(m){if(m==="electron")return window.__bridge_renderer__;if(m==="fs")return window.__bridge_renderer__.fs;if(m==="path")return window.__bridge_renderer__.path||{};throw new Error("Cannot require '"+m+"' in browser mode")};${escapeScript(preloadSource)}})()</script>\n`
       : ''
 
     const injection =
@@ -308,7 +316,7 @@ export class BridgeServer {
   private _buildMinimalShell(windowId: number, title: string, contentUrl?: string, preloadSource?: string): string {
     const bridgeBundle = this._rendererBundle ?? ''
     const preloadBlock = preloadSource
-      ? `<script>(function(){var require=function(m){if(m==="electron")return window.__bridge_renderer__;throw new Error("Cannot require '"+m+"' in browser mode")};${escapeScript(preloadSource)}})()</script>`
+      ? `<script>(function(){var require=function(m){if(m==="electron")return window.__bridge_renderer__;if(m==="fs")return window.__bridge_renderer__.fs;if(m==="path")return window.__bridge_renderer__.path||{};throw new Error("Cannot require '"+m+"' in browser mode")};${escapeScript(preloadSource)}})()</script>`
       : ''
 
     return `<!DOCTYPE html>
