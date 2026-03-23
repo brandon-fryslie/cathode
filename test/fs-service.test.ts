@@ -152,6 +152,46 @@ describe('fs-service', () => {
     })
   })
 
+  describe('appendFile / chmod / symlink / readlink / realpath / truncate', () => {
+    it('appendFile appends to a file', async () => {
+      const filePath = join(TEST_DIR, 'append-test.txt')
+      writeFileSync(filePath, 'hello')
+      await invokeHandler('bridge:fs:appendFile', filePath, ' world')
+      const content = await invokeHandler('bridge:fs:readFile', filePath, 'utf-8')
+      expect(content).toBe('hello world')
+    })
+
+    it('chmod changes permissions', async () => {
+      const filePath = join(TEST_DIR, 'chmod-test.txt')
+      writeFileSync(filePath, 'test')
+      await expect(invokeHandler('bridge:fs:chmod', filePath, 0o644)).resolves.toBeUndefined()
+    })
+
+    it('symlink and readlink work', async () => {
+      const target = join(TEST_DIR, 'sym-target.txt')
+      const link = join(TEST_DIR, 'sym-link.txt')
+      writeFileSync(target, 'target content')
+      await invokeHandler('bridge:fs:symlink', target, link)
+      const linkTarget = await invokeHandler('bridge:fs:readlink', link)
+      expect(linkTarget).toBe(target)
+    })
+
+    it('realpath resolves path', async () => {
+      const filePath = join(TEST_DIR, 'sym-target.txt')
+      const resolved = await invokeHandler('bridge:fs:realpath', filePath)
+      expect(typeof resolved).toBe('string')
+      expect((resolved as string).length).toBeGreaterThan(0)
+    })
+
+    it('truncate shortens a file', async () => {
+      const filePath = join(TEST_DIR, 'truncate-test.txt')
+      writeFileSync(filePath, 'long content here')
+      await invokeHandler('bridge:fs:truncate', filePath, 4)
+      const content = await invokeHandler('bridge:fs:readFile', filePath, 'utf-8')
+      expect(content).toBe('long')
+    })
+  })
+
   describe('path sandboxing', () => {
     it('rejects paths outside allowed roots', async () => {
       await expect(invokeHandler('bridge:fs:readFile', '/etc/passwd', 'utf-8'))

@@ -162,4 +162,113 @@ describe('fs-rest endpoint', () => {
     const exists = await postSync('existsSync', [filePath])
     expect(exists.body.result).toBe(false)
   })
+
+  it('rmSync works', async () => {
+    const dir = join(TEST_DIR, 'rest-rmSync-dir')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'child.txt'), 'x')
+    const res = await postSync('rmSync', [dir, { recursive: true, force: true }])
+    expect(res.status).toBe(200)
+    const exists = await postSync('existsSync', [dir])
+    expect(exists.body.result).toBe(false)
+  })
+
+  it('appendFileSync appends to a file', async () => {
+    const filePath = join(TEST_DIR, 'rest-append.txt')
+    await postSync('writeFileSync', [filePath, 'hello'])
+    const res = await postSync('appendFileSync', [filePath, ' world'])
+    expect(res.status).toBe(200)
+    const read = await postSync('readFileSync', [filePath, 'utf-8'])
+    expect(read.body.result).toBe('hello world')
+  })
+
+  it('lstatSync works', async () => {
+    const filePath = join(TEST_DIR, 'rest-append.txt')
+    const res = await postSync('lstatSync', [filePath])
+    expect(res.status).toBe(200)
+    const stats = res.body.result as SerializedStats
+    expect(stats.isFile).toBe(true)
+    expect(stats.isSymbolicLink).toBe(false)
+  })
+
+  it('accessSync succeeds for existing file', async () => {
+    const filePath = join(TEST_DIR, 'rest-append.txt')
+    const res = await postSync('accessSync', [filePath])
+    expect(res.status).toBe(200)
+  })
+
+  it('accessSync fails for missing file', async () => {
+    const res = await postSync('accessSync', [join(TEST_DIR, 'nope-access.txt')])
+    expect(res.status).toBe(500)
+    expect(res.body.error?.code).toBe('ENOENT')
+  })
+
+  it('realpathSync resolves real path', async () => {
+    const filePath = join(TEST_DIR, 'rest-append.txt')
+    const res = await postSync('realpathSync', [filePath])
+    expect(res.status).toBe(200)
+    expect(typeof res.body.result).toBe('string')
+    expect((res.body.result as string).length).toBeGreaterThan(0)
+  })
+
+  it('truncateSync truncates a file', async () => {
+    const filePath = join(TEST_DIR, 'rest-truncate.txt')
+    writeFileSync(filePath, 'long content here')
+    const res = await postSync('truncateSync', [filePath, 4])
+    expect(res.status).toBe(200)
+    const read = await postSync('readFileSync', [filePath, 'utf-8'])
+    expect(read.body.result).toBe('long')
+  })
+
+  it('chmodSync works', async () => {
+    const filePath = join(TEST_DIR, 'rest-chmod.txt')
+    writeFileSync(filePath, 'chmod test')
+    const res = await postSync('chmodSync', [filePath, 0o644])
+    expect(res.status).toBe(200)
+  })
+
+  it('symlinkSync and readlinkSync work', async () => {
+    const target = join(TEST_DIR, 'rest-symlink-target.txt')
+    const link = join(TEST_DIR, 'rest-symlink-link.txt')
+    writeFileSync(target, 'symlink target')
+    const symRes = await postSync('symlinkSync', [target, link])
+    expect(symRes.status).toBe(200)
+    const readRes = await postSync('readlinkSync', [link])
+    expect(readRes.status).toBe(200)
+    expect(readRes.body.result).toBe(target)
+    // lstat should show it's a symlink
+    const lstatRes = await postSync('lstatSync', [link])
+    expect((lstatRes.body.result as SerializedStats).isSymbolicLink).toBe(true)
+  })
+
+  it('openSync/writeSync/readSync/closeSync work for fd operations', async () => {
+    const filePath = join(TEST_DIR, 'rest-fd-ops.txt')
+    writeFileSync(filePath, '')
+    // Open
+    const openRes = await postSync('openSync', [filePath, 'w+'])
+    expect(openRes.status).toBe(200)
+    const fd = openRes.body.result as number
+    expect(typeof fd).toBe('number')
+    // Write
+    const writeRes = await postSync('writeSync', [fd, 'fd data', 0, 'utf-8'])
+    expect(writeRes.status).toBe(200)
+    // Read
+    const readRes = await postSync('readSync', [fd, 7, 0])
+    expect(readRes.status).toBe(200)
+    const readResult = readRes.body.result as { bytesRead: number; data: number[] }
+    expect(readResult.bytesRead).toBe(7)
+    const text = Buffer.from(readResult.data).toString('utf-8')
+    expect(text).toBe('fd data')
+    // Close
+    const closeRes = await postSync('closeSync', [fd])
+    expect(closeRes.status).toBe(200)
+  })
+
+  it('readFileSync binary returns number array', async () => {
+    const filePath = join(TEST_DIR, 'rest-binary.bin')
+    writeFileSync(filePath, Buffer.from([0xDE, 0xAD, 0xBE, 0xEF]))
+    const res = await postSync('readFileSync', [filePath])
+    expect(res.status).toBe(200)
+    expect(res.body.result).toEqual([0xDE, 0xAD, 0xBE, 0xEF])
+  })
 })
