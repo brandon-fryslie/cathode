@@ -4,3 +4,4 @@ electron-docs/
 colorpicker/
 monokle/
 *.tsbuildinfo
+electron_electron/
