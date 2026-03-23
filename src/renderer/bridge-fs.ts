@@ -75,4 +75,32 @@ export const bridgeFs = {
   unlink(filePath: string): Promise<void> {
     return invoke('bridge:fs:unlink', filePath)
   },
+
+  appendFile(filePath: string, data: string, options?: { encoding?: string }): Promise<void> {
+    return invoke('bridge:fs:appendFile', filePath, data, options)
+  },
+
+  chmod(filePath: string, mode: number): Promise<void> {
+    return invoke('bridge:fs:chmod', filePath, mode)
+  },
+
+  chown(filePath: string, uid: number, gid: number): Promise<void> {
+    return invoke('bridge:fs:chown', filePath, uid, gid)
+  },
+
+  symlink(target: string, linkPath: string, type?: string): Promise<void> {
+    return invoke('bridge:fs:symlink', target, linkPath, type)
+  },
+
+  readlink(filePath: string): Promise<string> {
+    return invoke('bridge:fs:readlink', filePath)
+  },
+
+  realpath(filePath: string): Promise<string> {
+    return invoke('bridge:fs:realpath', filePath)
+  },
+
+  truncate(filePath: string, len?: number): Promise<void> {
+    return invoke('bridge:fs:truncate', filePath, len)
+  },
 }

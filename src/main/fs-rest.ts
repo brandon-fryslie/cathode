@@ -99,6 +99,78 @@ const METHODS: Record<string, FsHandler> = {
     const resolved = sandbox.validate(filePath)
     fsSync.unlinkSync(resolved)
   },
+
+  rmSync(args, sandbox) {
+    const [filePath, options] = args as [string, { recursive?: boolean; force?: boolean }?]
+    const resolved = sandbox.validate(filePath)
+    fsSync.rmSync(resolved, options)
+  },
+
+  appendFileSync(args, sandbox) {
+    const [filePath, data, options] = args as [string, string, { encoding?: string; flag?: string }?]
+    const resolved = sandbox.validate(filePath)
+    fsSync.appendFileSync(resolved, data, options ?? undefined)
+  },
+
+  chmodSync(args, sandbox) {
+    const [filePath, mode] = args as [string, number]
+    const resolved = sandbox.validate(filePath)
+    fsSync.chmodSync(resolved, mode)
+  },
+
+  chownSync(args, sandbox) {
+    const [filePath, uid, gid] = args as [string, number, number]
+    const resolved = sandbox.validate(filePath)
+    fsSync.chownSync(resolved, uid, gid)
+  },
+
+  symlinkSync(args, sandbox) {
+    const [target, linkPath, type] = args as [string, string, string?]
+    const resolvedTarget = sandbox.validate(target)
+    const resolvedLink = sandbox.validate(linkPath)
+    fsSync.symlinkSync(resolvedTarget, resolvedLink, type as fsSync.symlink.Type)
+  },
+
+  readlinkSync(args, sandbox) {
+    const [filePath] = args as [string]
+    const resolved = sandbox.validate(filePath)
+    return fsSync.readlinkSync(resolved, 'utf-8')
+  },
+
+  realpathSync(args, sandbox) {
+    const [filePath] = args as [string]
+    const resolved = sandbox.validate(filePath)
+    return fsSync.realpathSync(resolved)
+  },
+
+  truncateSync(args, sandbox) {
+    const [filePath, len] = args as [string, number?]
+    const resolved = sandbox.validate(filePath)
+    fsSync.truncateSync(resolved, len)
+  },
+
+  openSync(args, sandbox) {
+    const [filePath, flags, mode] = args as [string, string, number?]
+    const resolved = sandbox.validate(filePath)
+    return fsSync.openSync(resolved, flags, mode)
+  },
+
+  readSync(args, _sandbox) {
+    const [fd, length, position] = args as [number, number, number?]
+    const buffer = Buffer.alloc(length)
+    const bytesRead = fsSync.readSync(fd, buffer, 0, length, position ?? null)
+    return { bytesRead, data: Array.from(buffer.subarray(0, bytesRead)) }
+  },
+
+  writeSync(args, _sandbox) {
+    const [fd, data, position, encoding] = args as [number, string, number?, string?]
+    return fsSync.writeSync(fd, data, position, encoding as BufferEncoding)
+  },
+
+  closeSync(args, _sandbox) {
+    const [fd] = args as [number]
+    fsSync.closeSync(fd)
+  },
 }
 
 function readBody(req: http.IncomingMessage): Promise<string> {

@@ -157,4 +157,61 @@ function registerHandlers(): void {
       await fs.unlink(resolved)
     } catch (err) { wrapFsError(err) }
   })
+
+  ipcMain.handle('bridge:fs:appendFile', async (_event, ...args) => {
+    try {
+      const [filePath, data, options] = args as [string, string, { encoding?: string }?]
+      const resolved = sandbox.validate(filePath)
+      await fs.appendFile(resolved, data, options as Parameters<typeof fs.appendFile>[2])
+    } catch (err) { wrapFsError(err) }
+  })
+
+  ipcMain.handle('bridge:fs:chmod', async (_event, ...args) => {
+    try {
+      const [filePath, mode] = args as [string, number]
+      const resolved = sandbox.validate(filePath)
+      await fs.chmod(resolved, mode)
+    } catch (err) { wrapFsError(err) }
+  })
+
+  ipcMain.handle('bridge:fs:chown', async (_event, ...args) => {
+    try {
+      const [filePath, uid, gid] = args as [string, number, number]
+      const resolved = sandbox.validate(filePath)
+      await fs.chown(resolved, uid, gid)
+    } catch (err) { wrapFsError(err) }
+  })
+
+  ipcMain.handle('bridge:fs:symlink', async (_event, ...args) => {
+    try {
+      const [target, linkPath, type] = args as [string, string, string?]
+      const resolvedTarget = sandbox.validate(target)
+      const resolvedLink = sandbox.validate(linkPath)
+      await fs.symlink(resolvedTarget, resolvedLink, type as 'file' | 'dir' | 'junction')
+    } catch (err) { wrapFsError(err) }
+  })
+
+  ipcMain.handle('bridge:fs:readlink', async (_event, ...args) => {
+    try {
+      const [filePath] = args as [string]
+      const resolved = sandbox.validate(filePath)
+      return await fs.readlink(resolved, 'utf-8')
+    } catch (err) { wrapFsError(err) }
+  })
+
+  ipcMain.handle('bridge:fs:realpath', async (_event, ...args) => {
+    try {
+      const [filePath] = args as [string]
+      const resolved = sandbox.validate(filePath)
+      return await fs.realpath(resolved)
+    } catch (err) { wrapFsError(err) }
+  })
+
+  ipcMain.handle('bridge:fs:truncate', async (_event, ...args) => {
+    try {
+      const [filePath, len] = args as [string, number?]
+      const resolved = sandbox.validate(filePath)
+      await fs.truncate(resolved, len)
+    } catch (err) { wrapFsError(err) }
+  })
 }
