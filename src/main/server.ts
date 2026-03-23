@@ -291,14 +291,18 @@ export class BridgeServer {
   private _injectBridgeScripts(html: string, windowId: number, preloadSource?: string): string {
     const bridgeBundle = this._rendererBundle ?? ''
 
-    // Build the preload wrapper if a preload script exists
+    // Global require shim for nodeIntegration:true apps and preload scripts
+    const requireShim = `<script>window.require=function(m){if(m==="electron")return window.__bridge_renderer__;if(m==="fs")return window.__bridge_renderer__.fs;if(m==="path")return window.__bridge_renderer__.path||{};throw new Error("Cannot require '"+m+"' in browser mode")};</script>\n`
+
+    // Preload wrapper (uses the global require)
     const preloadBlock = preloadSource
-      ? `<script>(function(){var require=function(m){if(m==="electron")return window.__bridge_renderer__;if(m==="fs")return window.__bridge_renderer__.fs;if(m==="path")return window.__bridge_renderer__.path||{};throw new Error("Cannot require '"+m+"' in browser mode")};${escapeScript(preloadSource)}})()</script>\n`
+      ? `<script>(function(){${escapeScript(preloadSource)}})()</script>\n`
       : ''
 
     const injection =
       `<script>window.__BRIDGE_WINDOW_ID__=${windowId};</script>\n` +
       `<script>${escapeScript(bridgeBundle)}</script>\n` +
+      requireShim +
       preloadBlock
 
     // Inject after <head> tag if present
@@ -315,8 +319,9 @@ export class BridgeServer {
   /** Minimal shell for URL-based windows or when no HTML file is found */
   private _buildMinimalShell(windowId: number, title: string, contentUrl?: string, preloadSource?: string): string {
     const bridgeBundle = this._rendererBundle ?? ''
+    const requireShim = `<script>window.require=function(m){if(m==="electron")return window.__bridge_renderer__;if(m==="fs")return window.__bridge_renderer__.fs;if(m==="path")return window.__bridge_renderer__.path||{};throw new Error("Cannot require '"+m+"' in browser mode")};</script>`
     const preloadBlock = preloadSource
-      ? `<script>(function(){var require=function(m){if(m==="electron")return window.__bridge_renderer__;if(m==="fs")return window.__bridge_renderer__.fs;if(m==="path")return window.__bridge_renderer__.path||{};throw new Error("Cannot require '"+m+"' in browser mode")};${escapeScript(preloadSource)}})()</script>`
+      ? `<script>(function(){${escapeScript(preloadSource)}})()</script>`
       : ''
 
     return `<!DOCTYPE html>
@@ -327,6 +332,7 @@ export class BridgeServer {
   <title>${escapeHtml(title)}</title>
   <script>window.__BRIDGE_WINDOW_ID__=${windowId};</script>
   <script>${escapeScript(bridgeBundle)}</script>
+  ${requireShim}
   ${preloadBlock}
 </head>
 <body>

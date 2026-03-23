@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest'
-import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { writeFileSync, mkdirSync, rmSync, existsSync, realpathSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ipcMain } from '../src/main/ipc-main.js'
 import { _initFs, addFsRoot } from '../src/main/fs-service.js'
@@ -173,7 +173,8 @@ describe('fs-service', () => {
       writeFileSync(target, 'target content')
       await invokeHandler('bridge:fs:symlink', target, link)
       const linkTarget = await invokeHandler('bridge:fs:readlink', link)
-      expect(linkTarget).toBe(target)
+      // symlink stores the resolved realpath of the target
+      expect(linkTarget).toBe(realpathSync(target))
     })
 
     it('realpath resolves path', async () => {

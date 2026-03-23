@@ -43,7 +43,7 @@ const METHODS: Record<string, FsHandler> = {
 
   lstatSync(args, sandbox) {
     const [filePath] = args as [string]
-    const resolved = sandbox.validate(filePath)
+    const resolved = sandbox.validateNoFollow(filePath)
     return serializeStats(fsSync.lstatSync(resolved))
   },
 
@@ -127,13 +127,13 @@ const METHODS: Record<string, FsHandler> = {
   symlinkSync(args, sandbox) {
     const [target, linkPath, type] = args as [string, string, string?]
     const resolvedTarget = sandbox.validate(target)
-    const resolvedLink = sandbox.validate(linkPath)
+    const resolvedLink = sandbox.validateNoFollow(linkPath)
     fsSync.symlinkSync(resolvedTarget, resolvedLink, type as fsSync.symlink.Type)
   },
 
   readlinkSync(args, sandbox) {
     const [filePath] = args as [string]
-    const resolved = sandbox.validate(filePath)
+    const resolved = sandbox.validateNoFollow(filePath)
     return fsSync.readlinkSync(resolved, 'utf-8')
   },
 

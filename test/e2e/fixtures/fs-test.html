@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>fs API e2e test</title>
+</head>
+<body>
+  <pre id="results"></pre>
+  <script>
+    // This script runs AFTER the bridge injection (which sets up require('fs'))
+    // The bridge scripts are injected by the server before this.
+    window.runFsTests = function(testDir) {
+      const fs = require('fs')
+      const results = {}
+
+      try {
+        // writeFileSync + readFileSync
+        fs.writeFileSync(testDir + '/e2e-test.txt', 'hello from browser')
+        results.readFileSync = fs.readFileSync(testDir + '/e2e-test.txt', 'utf-8')
+      } catch (e) { results.readFileSync_error = e.message }
+
+      try {
+        // existsSync
+        results.existsSync_true = fs.existsSync(testDir + '/e2e-test.txt')
+        results.existsSync_false = fs.existsSync(testDir + '/nonexistent.txt')
+      } catch (e) { results.existsSync_error = e.message }
+
+      try {
+        // statSync
+        const stats = fs.statSync(testDir + '/e2e-test.txt')
+        results.statSync_isFile = stats.isFile
+        results.statSync_isDirectory = stats.isDirectory
+        results.statSync_size = stats.size
+      } catch (e) { results.statSync_error = e.message }
+
+      try {
+        // mkdirSync + readdirSync
+        fs.mkdirSync(testDir + '/e2e-subdir', { recursive: true })
+        fs.writeFileSync(testDir + '/e2e-subdir/a.txt', 'a')
+        fs.writeFileSync(testDir + '/e2e-subdir/b.txt', 'b')
+        results.readdirSync = fs.readdirSync(testDir + '/e2e-subdir')
+      } catch (e) { results.readdirSync_error = e.message }
+
+      try {
+        // readdirSync withFileTypes
+        const entries = fs.readdirSync(testDir + '/e2e-subdir', { withFileTypes: true })
+        results.readdirSync_withFileTypes = entries.map(e => ({ name: e.name, isFile: e.isFile }))
+      } catch (e) { results.readdirSync_withFileTypes_error = e.message }
+
+      try {
+        // appendFileSync
+        fs.appendFileSync(testDir + '/e2e-test.txt', ' appended')
+        results.appendFileSync = fs.readFileSync(testDir + '/e2e-test.txt', 'utf-8')
+      } catch (e) { results.appendFileSync_error = e.message }
+
+      try {
+        // renameSync
+        fs.renameSync(testDir + '/e2e-test.txt', testDir + '/e2e-renamed.txt')
+        results.renameSync = fs.existsSync(testDir + '/e2e-renamed.txt')
+      } catch (e) { results.renameSync_error = e.message }
+
+      try {
+        // copyFileSync
+        fs.copyFileSync(testDir + '/e2e-renamed.txt', testDir + '/e2e-copy.txt')
+        results.copyFileSync = fs.readFileSync(testDir + '/e2e-copy.txt', 'utf-8')
+      } catch (e) { results.copyFileSync_error = e.message }
+
+      try {
+        // realpathSync
+        results.realpathSync = typeof fs.realpathSync(testDir + '/e2e-copy.txt')
+      } catch (e) { results.realpathSync_error = e.message }
+
+      try {
+        // truncateSync
+        fs.truncateSync(testDir + '/e2e-copy.txt', 5)
+        results.truncateSync = fs.readFileSync(testDir + '/e2e-copy.txt', 'utf-8')
+      } catch (e) { results.truncateSync_error = e.message }
+
+      try {
+        // unlinkSync
+        fs.unlinkSync(testDir + '/e2e-copy.txt')
+        results.unlinkSync = !fs.existsSync(testDir + '/e2e-copy.txt')
+      } catch (e) { results.unlinkSync_error = e.message }
+
+      try {
+        // error handling: ENOENT
+        fs.readFileSync(testDir + '/does-not-exist.txt', 'utf-8')
+        results.enoent = 'should have thrown'
+      } catch (e) {
+        results.enoent_code = e.code
+      }
+
+      try {
+        // sandbox rejection
+        fs.readFileSync('/etc/passwd', 'utf-8')
+        results.sandbox = 'should have thrown'
+      } catch (e) {
+        results.sandbox_rejected = e.message.includes('Path outside allowed roots')
+      }
+
+      try {
+        // constants
+        results.constants_F_OK = fs.constants.F_OK
+        results.constants_R_OK = fs.constants.R_OK
+      } catch (e) { results.constants_error = e.message }
+
+      try {
+        // promises API exists
+        results.promises_exists = typeof fs.promises === 'object'
+        results.promises_readFile = typeof fs.promises.readFile === 'function'
+      } catch (e) { results.promises_error = e.message }
+
+      document.getElementById('results').textContent = JSON.stringify(results)
+      return results
+    }
+  </script>
+</body>
+</html>

@@ -5,3 +5,5 @@ colorpicker/
 monokle/
 *.tsbuildinfo
 electron_electron/
+test-results/
+.claude/worktrees/

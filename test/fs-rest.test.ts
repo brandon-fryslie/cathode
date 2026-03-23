@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { writeFileSync, mkdirSync, rmSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import http from 'node:http'
@@ -235,7 +235,7 @@ describe('fs-rest endpoint', () => {
     expect(symRes.status).toBe(200)
     const readRes = await postSync('readlinkSync', [link])
     expect(readRes.status).toBe(200)
-    expect(readRes.body.result).toBe(target)
+    expect(readRes.body.result).toBe(realpathSync(target))
     // lstat should show it's a symlink
     const lstatRes = await postSync('lstatSync', [link])
     expect((lstatRes.body.result as SerializedStats).isSymbolicLink).toBe(true)

@@ -91,7 +91,7 @@ function registerHandlers(): void {
   ipcMain.handle('bridge:fs:lstat', async (_event, ...args) => {
     try {
       const [filePath] = args as [string]
-      const resolved = sandbox.validate(filePath)
+      const resolved = sandbox.validateNoFollow(filePath)
       return serializeStats(await fs.lstat(resolved))
     } catch (err) { wrapFsError(err) }
   })
@@ -186,7 +186,7 @@ function registerHandlers(): void {
     try {
       const [target, linkPath, type] = args as [string, string, string?]
       const resolvedTarget = sandbox.validate(target)
-      const resolvedLink = sandbox.validate(linkPath)
+      const resolvedLink = sandbox.validateNoFollow(linkPath)
       await fs.symlink(resolvedTarget, resolvedLink, type as 'file' | 'dir' | 'junction')
     } catch (err) { wrapFsError(err) }
   })
@@ -194,7 +194,7 @@ function registerHandlers(): void {
   ipcMain.handle('bridge:fs:readlink', async (_event, ...args) => {
     try {
       const [filePath] = args as [string]
-      const resolved = sandbox.validate(filePath)
+      const resolved = sandbox.validateNoFollow(filePath)
       return await fs.readlink(resolved, 'utf-8')
     } catch (err) { wrapFsError(err) }
   })
