@@ -54,6 +54,14 @@ class App extends EventEmitter {
     _initMenu(this._server)
     _initFs([process.cwd()])
 
+    // [LAW:one-source-of-truth] Server process is the canonical source for process info.
+    this._server.setProcessInfo({
+      env: process.env as Record<string, string | undefined>,
+      platform: process.platform,
+      arch: process.arch,
+      versions: process.versions as unknown as Record<string, string>,
+    })
+
     // Wire up window lifecycle events
     WindowManager.setOnWindowCreated((win: BrowserWindow) => {
       win._setServer(this._server)

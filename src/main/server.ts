@@ -49,6 +49,7 @@ export class BridgeServer {
   private _onClientReady: (windowId: number, ws: WebSocket) => void = () => {}
   private _onClientDisconnect: (windowId: number) => void = () => {}
   private _rendererBundle: string | null = null
+  private _processShim: string | null = null
 
   constructor(port = 3000) {
     this._port = port
@@ -84,6 +85,29 @@ export class BridgeServer {
 
   setRendererBundle(code: string): void {
     this._rendererBundle = code
+  }
+
+  /** Configure the process shim injected into every rendered page. */
+  setProcessInfo(info: { env: Record<string, string | undefined>; platform: string; versions: Record<string, string>; type?: string; arch?: string }): void {
+    // [LAW:one-source-of-truth] The server's Node process is the canonical source; this serializes it once for all clients.
+    const shim = {
+      env: info.env,
+      platform: info.platform,
+      arch: info.arch ?? 'unknown',
+      type: info.type ?? 'renderer',
+      versions: info.versions,
+      version: info.versions.node ? `v${info.versions.node}` : '',
+      // Stubs for common process properties that renderer code may read
+      pid: 0,
+      ppid: 0,
+      argv: [],
+      execPath: '',
+      cwd: () => '/',
+      nextTick: (fn: () => void) => Promise.resolve().then(fn),
+      stdout: { write: () => true },
+      stderr: { write: () => true },
+    }
+    this._processShim = `globalThis.process=Object.assign(globalThis.process||{},${JSON.stringify(shim)});globalThis.process.cwd=function(){return "/"};globalThis.process.nextTick=function(fn){Promise.resolve().then(fn)};globalThis.process.stdout={write:function(){return true}};globalThis.process.stderr={write:function(){return true}}`
   }
 
   addStaticDir(dir: string): void {
@@ -299,7 +323,12 @@ export class BridgeServer {
       ? `<script>(function(){${escapeScript(preloadSource)}})()</script>\n`
       : ''
 
+    const processBlock = this._processShim
+      ? `<script>${escapeScript(this._processShim)}</script>\n`
+      : ''
+
     const injection =
+      processBlock +
       `<script>window.__BRIDGE_WINDOW_ID__=${windowId};</script>\n` +
       `<script>${escapeScript(bridgeBundle)}</script>\n` +
       requireShim +
@@ -324,12 +353,16 @@ export class BridgeServer {
       ? `<script>(function(){${escapeScript(preloadSource)}})()</script>`
       : ''
 
+    const processScript = this._processShim
+      ? `\n  <script>${escapeScript(this._processShim)}</script>`
+      : ''
+
     return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)}</title>
+  <title>${escapeHtml(title)}</title>${processScript}
   <script>window.__BRIDGE_WINDOW_ID__=${windowId};</script>
   <script>${escapeScript(bridgeBundle)}</script>
   ${requireShim}

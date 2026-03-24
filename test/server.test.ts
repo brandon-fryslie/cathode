@@ -100,6 +100,81 @@ describe('BridgeServer', () => {
     ws.close()
   })
 
+  it('injects process shim before bridge scripts in minimal shell', async () => {
+    server = new BridgeServer(0)
+    server.setProcessInfo({
+      env: { NODE_ENV: 'test', FOO: 'bar' },
+      platform: 'linux',
+      arch: 'x64',
+      versions: { node: '20.0.0' },
+    })
+    server.setRoute({ windowId: 1, title: 'Process Test' })
+    await server.listen()
+
+    const addr = server.httpServer.address()
+    const port = typeof addr === 'object' && addr !== null ? addr.port : 0
+    const html = await (await fetch(`http://localhost:${port}/`)).text()
+
+    // Process shim is present
+    expect(html).toContain('globalThis.process')
+    expect(html).toContain('"NODE_ENV":"test"')
+    expect(html).toContain('"platform":"linux"')
+    expect(html).toContain('"arch":"x64"')
+
+    // Process shim appears before __BRIDGE_WINDOW_ID__
+    const processIdx = html.indexOf('globalThis.process')
+    const windowIdIdx = html.indexOf('__BRIDGE_WINDOW_ID__')
+    expect(processIdx).toBeLessThan(windowIdIdx)
+  })
+
+  it('injects process shim into content HTML via _injectBridgeScripts', async () => {
+    server = new BridgeServer(0)
+    server.setProcessInfo({
+      env: { APP_MODE: 'web' },
+      platform: 'darwin',
+      versions: { node: '18.0.0' },
+    })
+
+    // Create a temp HTML file to serve
+    const { writeFileSync, mkdtempSync, rmSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const tmpDir = mkdtempSync(join((await import('node:os')).tmpdir(), 'bridge-test-'))
+    writeFileSync(join(tmpDir, 'index.html'), '<!DOCTYPE html><html><head><title>App</title></head><body></body></html>')
+
+    server.addStaticDir(tmpDir)
+    server.setRoute({ windowId: 1, title: 'Injected', contentPath: 'index.html' })
+    await server.listen()
+
+    const addr = server.httpServer.address()
+    const port = typeof addr === 'object' && addr !== null ? addr.port : 0
+    const html = await (await fetch(`http://localhost:${port}/`)).text()
+
+    expect(html).toContain('globalThis.process')
+    expect(html).toContain('"APP_MODE":"web"')
+    expect(html).toContain('"platform":"darwin"')
+
+    // Process shim appears before __BRIDGE_WINDOW_ID__ in injected HTML too
+    const processIdx = html.indexOf('globalThis.process')
+    const windowIdIdx = html.indexOf('__BRIDGE_WINDOW_ID__')
+    expect(processIdx).toBeLessThan(windowIdIdx)
+
+    rmSync(tmpDir, { recursive: true })
+  })
+
+  it('omits process shim when setProcessInfo is not called', async () => {
+    server = new BridgeServer(0)
+    server.setRoute({ windowId: 1, title: 'No Process' })
+    await server.listen()
+
+    const addr = server.httpServer.address()
+    const port = typeof addr === 'object' && addr !== null ? addr.port : 0
+    const html = await (await fetch(`http://localhost:${port}/`)).text()
+
+    // Should have window ID but no process shim
+    expect(html).toContain('__BRIDGE_WINDOW_ID__')
+    expect(html).not.toContain('globalThis.process')
+  })
+
   it('returns 404 for unknown routes', async () => {
     server = new BridgeServer(0)
     await server.listen()
