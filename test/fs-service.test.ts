@@ -193,6 +193,73 @@ describe('fs-service', () => {
     })
   })
 
+  describe('watch / unwatch', () => {
+    it('returns a watchId when watching a directory', async () => {
+      const dir = join(TEST_DIR, 'watch-dir')
+      mkdirSync(dir, { recursive: true })
+      const watchId = await invokeHandler('bridge:fs:watch', dir) as string
+      expect(typeof watchId).toBe('string')
+      expect(watchId.length).toBeGreaterThan(0)
+      await invokeHandler('bridge:fs:unwatch', watchId)
+    })
+
+    it('streams change events via sender.send', async () => {
+      const dir = join(TEST_DIR, 'watch-events')
+      mkdirSync(dir, { recursive: true })
+
+      const received: Array<{ channel: string; args: unknown[] }> = []
+      const senderSend = (channel: string, ...args: unknown[]) => {
+        received.push({ channel, args })
+      }
+      const event = { senderWindowId: 1, sender: { send: senderSend } }
+      const watchId = await ipcMain._dispatchInvoke('bridge:fs:watch', 1, [dir], senderSend) as string
+
+      // Trigger a filesystem change
+      writeFileSync(join(dir, 'new-file.txt'), 'hello')
+
+      // fs.watch events are async — wait briefly for them to arrive
+      await new Promise(resolve => setTimeout(resolve, 200))
+
+      expect(received.length).toBeGreaterThan(0)
+      const watchEvents = received.filter(r => r.channel === 'bridge:fs:watch:event')
+      expect(watchEvents.length).toBeGreaterThan(0)
+      // Each event: [watchId, eventType, filename]
+      expect(watchEvents[0].args[0]).toBe(watchId)
+      expect(typeof watchEvents[0].args[1]).toBe('string') // 'rename' or 'change'
+
+      await invokeHandler('bridge:fs:unwatch', watchId)
+    })
+
+    it('stops sending events after unwatch', async () => {
+      const dir = join(TEST_DIR, 'watch-stop')
+      mkdirSync(dir, { recursive: true })
+
+      const received: Array<{ channel: string; args: unknown[] }> = []
+      const senderSend = (channel: string, ...args: unknown[]) => {
+        received.push({ channel, args })
+      }
+      const watchId = await ipcMain._dispatchInvoke('bridge:fs:watch', 1, [dir], senderSend) as string
+
+      await invokeHandler('bridge:fs:unwatch', watchId)
+      received.length = 0
+
+      writeFileSync(join(dir, 'after-unwatch.txt'), 'should not trigger')
+      await new Promise(resolve => setTimeout(resolve, 200))
+
+      const watchEvents = received.filter(r => r.channel === 'bridge:fs:watch:event' && r.args[1] !== 'close')
+      expect(watchEvents.length).toBe(0)
+    })
+
+    it('rejects watching paths outside sandbox', async () => {
+      await expect(invokeHandler('bridge:fs:watch', '/etc'))
+        .rejects.toThrow('Path outside allowed roots')
+    })
+
+    it('unwatch is safe for unknown watchIds', async () => {
+      await expect(invokeHandler('bridge:fs:unwatch', 'nonexistent-id')).resolves.toBeUndefined()
+    })
+  })
+
   describe('path sandboxing', () => {
     it('rejects paths outside allowed roots', async () => {
       await expect(invokeHandler('bridge:fs:readFile', '/etc/passwd', 'utf-8'))

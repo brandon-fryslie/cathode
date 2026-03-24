@@ -103,4 +103,34 @@ export const bridgeFs = {
   truncate(filePath: string, len?: number): Promise<void> {
     return invoke('bridge:fs:truncate', filePath, len)
   },
+
+  async watch(
+    filePath: string,
+    options?: { recursive?: boolean; persistent?: boolean },
+    listener?: (eventType: string, filename: string | null) => void,
+  ): Promise<{ watchId: string; close: () => Promise<void> }> {
+    const watchId = await invoke<string>('bridge:fs:watch', filePath, options)
+
+    if (listener) {
+      const handler = (_event: unknown, id: string, eventType: string, filename: string | null) => {
+        if (id === watchId) listener(eventType, filename)
+      }
+      ipcRenderer.on('bridge:fs:watch:event', handler)
+
+      return {
+        watchId,
+        async close() {
+          ipcRenderer.removeListener('bridge:fs:watch:event', handler)
+          await invoke<void>('bridge:fs:unwatch', watchId)
+        },
+      }
+    }
+
+    return {
+      watchId,
+      async close() {
+        await invoke<void>('bridge:fs:unwatch', watchId)
+      },
+    }
+  },
 }

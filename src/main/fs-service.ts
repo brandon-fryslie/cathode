@@ -9,6 +9,10 @@ import type { SerializedStats, SerializedDirent } from '../shared/types.js'
 
 const sandbox = new PathSandbox()
 
+// [LAW:one-source-of-truth] Active watchers keyed by watchId. Server owns lifecycle.
+const activeWatchers = new Map<string, fsSync.FSWatcher>()
+let watchIdCounter = 0
+
 /** @internal Access the sandbox for the REST handler */
 export function _getFsSandbox(): PathSandbox { return sandbox }
 
@@ -214,4 +218,51 @@ function registerHandlers(): void {
       await fs.truncate(resolved, len)
     } catch (err) { wrapFsError(err) }
   })
+
+  ipcMain.handle('bridge:fs:watch', (event, ...args) => {
+    try {
+      const [filePath, options] = args as [string, { recursive?: boolean; persistent?: boolean }?]
+      const resolved = sandbox.validate(filePath)
+      const watchId = String(++watchIdCounter)
+
+      const watcher = fsSync.watch(resolved, {
+        recursive: options?.recursive ?? false,
+        persistent: options?.persistent ?? false,
+      })
+
+      watcher.on('change', (eventType, filename) => {
+        event.sender.send('bridge:fs:watch:event', watchId, eventType, filename ? String(filename) : null)
+      })
+
+      watcher.on('error', (err) => {
+        event.sender.send('bridge:fs:watch:event', watchId, 'error', (err as NodeJS.ErrnoException).message)
+        activeWatchers.delete(watchId)
+      })
+
+      watcher.on('close', () => {
+        event.sender.send('bridge:fs:watch:event', watchId, 'close', null)
+        activeWatchers.delete(watchId)
+      })
+
+      activeWatchers.set(watchId, watcher)
+      return watchId
+    } catch (err) { wrapFsError(err) }
+  })
+
+  ipcMain.handle('bridge:fs:unwatch', (_event, ...args) => {
+    const [watchId] = args as [string]
+    const watcher = activeWatchers.get(watchId)
+    if (watcher) {
+      watcher.close()
+      activeWatchers.delete(watchId)
+    }
+  })
+}
+
+/** Close all active watchers. Called on server shutdown. */
+export function closeAllWatchers(): void {
+  for (const [id, watcher] of activeWatchers) {
+    watcher.close()
+    activeWatchers.delete(id)
+  }
 }

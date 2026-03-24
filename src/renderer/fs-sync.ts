@@ -276,17 +276,39 @@ export function createWriteStream(): never {
   throw new Error('[electron-bridge] createWriteStream is not supported in browser mode. Use bridgeFs.writeFile() instead.')
 }
 
-// watch/watchFile — subscription-based, separate feature (fs.watch epic task)
-export function watch(): never {
-  throw new Error('[electron-bridge] fs.watch is not yet supported. See electron-filesystem-4e1.4 in the roadmap.')
+// watch/watchFile — delegates to bridgeFs.watch over WebSocket streaming
+export function watch(
+  filePath: string,
+  optionsOrListener?: { recursive?: boolean; persistent?: boolean } | ((eventType: string, filename: string | null) => void),
+  listener?: (eventType: string, filename: string | null) => void,
+): { close: () => void } {
+  const opts = typeof optionsOrListener === 'function' ? undefined : optionsOrListener
+  const cb = typeof optionsOrListener === 'function' ? optionsOrListener : listener
+
+  // bridgeFs.watch is async; we start it and return a handle synchronously
+  let closeHandle: (() => Promise<void>) | null = null
+  let closed = false
+
+  bridgeFs.watch(filePath, opts, cb).then((handle) => {
+    closeHandle = handle.close
+    // If close() was called before the watcher was ready, close immediately
+    if (closed) handle.close()
+  })
+
+  return {
+    close() {
+      closed = true
+      closeHandle?.()
+    },
+  }
 }
 
 export function watchFile(): never {
-  throw new Error('[electron-bridge] fs.watchFile is not yet supported. See electron-filesystem-4e1.4 in the roadmap.')
+  throw new Error('[electron-bridge] fs.watchFile is not supported in browser mode. Use fs.watch() instead.')
 }
 
 export function unwatchFile(): void {
-  // no-op
+  // no-op — watchFile is not supported
 }
 
 // --- Default export matches Node's fs module shape ---
