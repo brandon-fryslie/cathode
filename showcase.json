@@ -1,0 +1,68 @@
+{
+  "project": {
+    "eyebrow": "an experiment by brandon-fryslie",
+    "name": "cathode",
+    "tagline": "Drop-in replacement for require('electron'): Electron apps run in any browser, with the renderer half on the same code path and the Node main process moved across a WebSocket.",
+    "github_url": "https://github.com/brandon-fryslie/cathode",
+    "language": "TypeScript",
+    "license": "MIT",
+    "badges": ["renderer/main split", "WebSocket bridge", "ipcRenderer + bridgeFs"],
+    "ctas": [
+      { "label": "View source",       "url": "https://github.com/brandon-fryslie/cathode", "primary": true },
+      { "label": "README",            "url": "https://github.com/brandon-fryslie/cathode#readme" },
+      { "label": "Protocol",          "url": "https://github.com/brandon-fryslie/cathode/blob/master/src/shared/protocol.ts" },
+      { "label": "MONOKLE-COMPAT.md", "url": "https://github.com/brandon-fryslie/cathode/blob/master/MONOKLE-COMPAT.md" }
+    ]
+  },
+
+  "hero": {
+    "kind": "iframe",
+    "src": "demo.html",
+    "alt": "A live, interactive Electron-style mini-app whose renderer code is real cathode source. The right pane shows every JSON message that crosses cathode's WebSocket protocol in real time. The Node main process is simulated in this page because there is no Node.js runtime in your browser tab."
+  },
+
+  "highlights": [
+    {
+      "title": "Renderer is your renderer, unchanged",
+      "description": "The browser-side bundle (ipcRenderer, contextBridge, bridgeFs) is exactly what an Electron renderer expects. import { ipcRenderer } from 'cathode/renderer' and existing call sites keep working."
+    },
+    {
+      "title": "Main process moved across a WebSocket",
+      "description": "Renderer messages are JSON-serialized over a single WebSocket. A typed protocol — see src/shared/protocol.ts — is the canonical source of truth for both sides; the demo above streams every message in and out of that protocol live."
+    },
+    {
+      "title": "Translates IPC, dialog, fs, menus, notifications",
+      "description": "ipcRenderer.send / .invoke / .on, contextBridge, fs (sync, async, callback), bridgeFs (full Node fs surface), dialog requests, native menus, notifications, native-image, screen, shell, clipboard, session — all routed through the same protocol."
+    },
+    {
+      "title": "REST + sandbox for filesystem",
+      "description": "The Node side ships a sandboxable HTTP fs service (src/main/fs-rest.ts, fs-sandbox.ts, fs-service.ts) so the host can pin which paths the renderer is allowed to touch — instead of forwarding the entire process's privileges."
+    },
+    {
+      "title": "Honest about what doesn't translate",
+      "description": "ipcRenderer.sendSync throws — a no-op replacement would be a lie. MessagePort transfers fall back to regular sends. The boundary between 'works' and 'cannot work over a WebSocket' is documented and surfaced as runtime errors, not silent data loss."
+    },
+    {
+      "title": "Architectural laws annotated in source",
+      "description": "Look for [LAW:dataflow-not-control-flow], [LAW:one-source-of-truth], [LAW:single-enforcer] annotations — the constraints that keep the renderer/main split from accumulating control-flow rot."
+    }
+  ],
+
+  "quickstart": {
+    "code": "# Install\nnpm install electron-bridge\n\n# In your Electron main process: replace require('electron') with cathode's main\n# - import the same module names\n# - cathode brings up an HTTP+WebSocket server that serves your renderer HTML\n# - existing Electron app keeps working, but now runs in any browser\n\n# Run the bundled CLI to host an existing Electron-style app over the bridge\nnpx electron-bridge --entry ./your-main.js --renderer ./renderer.html\n\n# Or use the renderer IIFE bundle directly in your own page\n# <script src=\"node_modules/electron-bridge/dist/renderer/index.global.js\"></script>"
+  },
+
+  "links": [
+    { "label": "Renderer-side source",     "url": "https://github.com/brandon-fryslie/cathode/tree/master/src/renderer" },
+    { "label": "Main-side source",         "url": "https://github.com/brandon-fryslie/cathode/tree/master/src/main" },
+    { "label": "Shared protocol",          "url": "https://github.com/brandon-fryslie/cathode/blob/master/src/shared/protocol.ts" },
+    { "label": "MONOKLE-COMPAT.md — what's actually translated", "url": "https://github.com/brandon-fryslie/cathode/blob/master/MONOKLE-COMPAT.md" },
+    { "label": "deployed-sites index",     "url": "https://brandon-fryslie.github.io/" }
+  ],
+
+  "headings": {
+    "highlights": "What it does",
+    "quickstart": "Use it",
+    "links": "More"
+  }
+}

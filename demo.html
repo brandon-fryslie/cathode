@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>cathode — live demo</title>
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <div class="lights"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+      <div class="title">cathode demo · electron-bridge</div>
+      <div class="sub" title="The renderer half is real cathode source: dist/renderer/index.global.js. The Node main process is faked locally because there's no Node in your browser tab.">renderer: real · main: simulated</div>
+    </div>
+    <div class="menubar">
+      <span class="menu">File</span>
+      <span class="menu">Edit</span>
+      <span class="menu">View</span>
+      <span class="menu">Window</span>
+      <span class="menu">Help</span>
+    </div>
+
+    <div class="layout">
+      <section class="pane app-pane">
+        <h3>The app</h3>
+        <p class="hint">A tiny Electron-style renderer. Each button calls real cathode APIs.</p>
+        <div class="buttons">
+          <button id="btn-open"  data-api="bridgeFs.readFile">Open file</button>
+          <button id="btn-stat"  data-api="bridgeFs.stat">Stat file</button>
+          <button id="btn-list"  data-api="bridgeFs.readdir">List directory</button>
+          <button id="btn-save"  data-api="bridgeFs.writeFile">Save file</button>
+          <button id="btn-task"  data-api="ipcRenderer.invoke">Run task (RPC)</button>
+          <button id="btn-notify" data-api="ipcRenderer.send">Show notification</button>
+          <button id="btn-tick"   data-api="ipcRenderer.on">Push server event</button>
+        </div>
+        <div class="output-wrap">
+          <div class="section-label">Renderer output <small>(latest first)</small></div>
+          <div class="output" id="output"></div>
+        </div>
+      </section>
+
+      <section class="pane traffic-pane">
+        <h3>WebSocket traffic <small id="traffic-count">0</small></h3>
+        <p class="hint">Every JSON message that crosses cathode's bridge protocol — click a row to expand.</p>
+        <div class="traffic" id="traffic"></div>
+      </section>
+    </div>
+
+    <div class="footer">
+      <span>Renderer: cathode's real <code>dist/renderer/index.global.js</code> (loaded as-is).</span>
+      <span>Main process: simulated in <code>fake-bridge.js</code>.</span>
+      <a href="https://github.com/brandon-fryslie/cathode/blob/master/src/shared/protocol.ts" target="_blank" rel="noopener">protocol.ts</a>
+    </div>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+
+  <!-- Order matters: fake-bridge installs window.WebSocket BEFORE cathode's
+       renderer IIFE runs _init() and constructs a connection. -->
+  <script src="fake-bridge.js"></script>
+  <script src="cathode-renderer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
